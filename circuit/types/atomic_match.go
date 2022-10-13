@@ -18,9 +18,17 @@
 package types
 
 type AtomicMatchTx struct {
-	AccountIndex      int64
-	BuyOffer          *OfferTx
-	SellOffer         *OfferTx
+	Offer *OfferTx
+
+	AccountIndex int64
+	Type         int64
+	OfferId      int64
+	NftIndex     int64
+	AssetId      int64
+	AssetAmount  int64
+	ExpiredAt    int64
+	TreasuryRate int64
+
 	CreatorAmount     int64
 	TreasuryAmount    int64
 	GasAccountIndex   int64
@@ -29,9 +37,17 @@ type AtomicMatchTx struct {
 }
 
 type AtomicMatchTxConstraints struct {
-	AccountIndex      Variable
-	BuyOffer          OfferTxConstraints
-	SellOffer         OfferTxConstraints
+	Offer OfferTxConstraints
+
+	AccountIndex Variable
+	Type         Variable
+	OfferId      Variable
+	NftIndex     Variable
+	AssetId      Variable
+	AssetAmount  Variable
+	ExpiredAt    Variable
+
+	TreasuryRate      Variable
 	CreatorAmount     Variable
 	TreasuryAmount    Variable
 	GasAccountIndex   Variable
@@ -41,9 +57,14 @@ type AtomicMatchTxConstraints struct {
 
 func EmptyAtomicMatchTxWitness() (witness AtomicMatchTxConstraints) {
 	return AtomicMatchTxConstraints{
+		Offer:             EmptyOfferTxWitness(),
 		AccountIndex:      ZeroInt,
-		BuyOffer:          EmptyOfferTxWitness(),
-		SellOffer:         EmptyOfferTxWitness(),
+		Type:              ZeroInt,
+		OfferId:           ZeroInt,
+		NftIndex:          ZeroInt,
+		AssetId:           ZeroInt,
+		AssetAmount:       ZeroInt,
+		ExpiredAt:         ZeroInt,
 		CreatorAmount:     ZeroInt,
 		TreasuryAmount:    ZeroInt,
 		GasAccountIndex:   ZeroInt,
@@ -65,9 +86,14 @@ func ComputeHashFromOfferTx(api API, tx OfferTxConstraints, hFunc MiMC) (hashVal
 
 func SetAtomicMatchTxWitness(tx *AtomicMatchTx) (witness AtomicMatchTxConstraints) {
 	witness = AtomicMatchTxConstraints{
+		Offer:             SetOfferTxWitness(tx.Offer),
 		AccountIndex:      tx.AccountIndex,
-		BuyOffer:          SetOfferTxWitness(tx.BuyOffer),
-		SellOffer:         SetOfferTxWitness(tx.SellOffer),
+		Type:              tx.Type,
+		OfferId:           tx.OfferId,
+		NftIndex:          tx.NftIndex,
+		AssetId:           tx.AssetId,
+		AssetAmount:       tx.AssetAmount,
+		ExpiredAt:         tx.ExpiredAt,
 		CreatorAmount:     tx.CreatorAmount,
 		TreasuryAmount:    tx.TreasuryAmount,
 		GasAccountIndex:   tx.GasAccountIndex,
@@ -82,16 +108,13 @@ func ComputeHashFromAtomicMatchTx(api API, tx AtomicMatchTxConstraints, nonce Va
 	hFunc.Write(
 		PackInt64Variables(api, ChainId, tx.AccountIndex, nonce, expiredAt),
 		PackInt64Variables(api, tx.GasAccountIndex, tx.GasFeeAssetId, tx.GasFeeAssetAmount),
-		PackInt64Variables(api, tx.BuyOffer.Type, tx.BuyOffer.OfferId, tx.BuyOffer.AccountIndex, tx.BuyOffer.NftIndex),
-		PackInt64Variables(api, tx.BuyOffer.AssetId, tx.BuyOffer.AssetAmount, tx.BuyOffer.ListedAt, tx.BuyOffer.ExpiredAt),
-		tx.BuyOffer.Sig.R.X,
-		tx.BuyOffer.Sig.R.Y,
-		tx.BuyOffer.Sig.S,
-		PackInt64Variables(api, tx.SellOffer.Type, tx.SellOffer.OfferId, tx.SellOffer.AccountIndex, tx.SellOffer.NftIndex),
-		PackInt64Variables(api, tx.SellOffer.AssetId, tx.SellOffer.AssetAmount, tx.SellOffer.ListedAt, tx.SellOffer.ExpiredAt),
-		tx.SellOffer.Sig.R.X,
-		tx.SellOffer.Sig.R.Y,
-		tx.SellOffer.Sig.S,
+		PackInt64Variables(api, tx.Offer.Type, tx.Offer.OfferId, tx.Offer.AccountIndex, tx.Offer.NftIndex),
+		PackInt64Variables(api, tx.Offer.AssetId, tx.Offer.AssetAmount, tx.Offer.ListedAt, tx.Offer.ExpiredAt),
+		tx.Offer.Sig.R.X,
+		tx.Offer.Sig.R.Y,
+		tx.Offer.Sig.S,
+		PackInt64Variables(api, tx.Type, tx.OfferId, tx.AccountIndex, tx.NftIndex),
+		PackInt64Variables(api, tx.AssetId, tx.AssetAmount, tx.ExpiredAt),
 	)
 	hashVal = hFunc.Sum()
 	return hashVal
@@ -105,77 +128,75 @@ func VerifyAtomicMatchTx(
 	blockCreatedAt Variable,
 	hFunc MiMC,
 ) (pubData [PubDataSizePerTx]Variable, err error) {
-	fromAccount := 0
-	buyAccount := 1
-	sellAccount := 2
-	creatorAccount := 3
+	buyAccount := 0
+	sellAccount := 1
+	creatorAccount := 2
 
 	pubData = CollectPubDataFromAtomicMatch(api, *tx)
 	// verify params
-	IsVariableEqual(api, flag, tx.BuyOffer.Type, 0)
-	IsVariableEqual(api, flag, tx.SellOffer.Type, 1)
-	IsVariableEqual(api, flag, tx.BuyOffer.AssetId, tx.SellOffer.AssetId)
-	IsVariableEqual(api, flag, tx.BuyOffer.AssetAmount, tx.SellOffer.AssetAmount)
-	IsVariableEqual(api, flag, tx.BuyOffer.NftIndex, tx.SellOffer.NftIndex)
-	IsVariableEqual(api, flag, tx.BuyOffer.AssetId, accountsBefore[buyAccount].AssetsInfo[0].AssetId)
-	IsVariableEqual(api, flag, tx.SellOffer.AssetId, accountsBefore[sellAccount].AssetsInfo[0].AssetId)
-	IsVariableEqual(api, flag, tx.SellOffer.AssetId, accountsBefore[creatorAccount].AssetsInfo[0].AssetId)
-	IsVariableEqual(api, flag, tx.GasFeeAssetId, accountsBefore[fromAccount].AssetsInfo[0].AssetId)
-	IsVariableLessOrEqual(api, flag, blockCreatedAt, tx.BuyOffer.ExpiredAt)
-	IsVariableLessOrEqual(api, flag, blockCreatedAt, tx.SellOffer.ExpiredAt)
-	IsVariableEqual(api, flag, nftBefore.NftIndex, tx.SellOffer.NftIndex)
-	IsVariableEqual(api, flag, tx.BuyOffer.TreasuryRate, tx.SellOffer.TreasuryRate)
+	IsVariableEqual(api, flag, api.Add(tx.Offer.Type, tx.Type), 1)
+	IsVariableEqual(api, flag, tx.Offer.AssetId, tx.AssetId)
+	IsVariableEqual(api, flag, tx.Offer.AssetAmount, tx.AssetAmount)
+	IsVariableEqual(api, flag, tx.Offer.NftIndex, tx.NftIndex)
+	IsVariableEqual(api, flag, tx.Offer.AssetId, accountsBefore[buyAccount].AssetsInfo[0].AssetId)
+	IsVariableEqual(api, flag, tx.AssetId, accountsBefore[sellAccount].AssetsInfo[0].AssetId)
+	IsVariableEqual(api, flag, tx.AssetId, accountsBefore[creatorAccount].AssetsInfo[0].AssetId)
+	//IsVariableEqual(api, flag, tx.GasFeeAssetId, accountsBefore[fromAccount].AssetsInfo[0].AssetId)
+	IsVariableLessOrEqual(api, flag, blockCreatedAt, tx.Offer.ExpiredAt)
+	IsVariableLessOrEqual(api, flag, blockCreatedAt, tx.ExpiredAt)
+	IsVariableEqual(api, flag, nftBefore.NftIndex, tx.Offer.NftIndex)
+	IsVariableEqual(api, flag, tx.Offer.TreasuryRate, tx.TreasuryRate)
 	// verify signature
 	hFunc.Reset()
-	buyOfferHash := ComputeHashFromOfferTx(api, tx.BuyOffer, hFunc)
+	buyOfferHash := ComputeHashFromOfferTx(api, tx.Offer, hFunc)
 	hFunc.Reset()
-	notBuyer := api.IsZero(api.IsZero(api.Sub(tx.AccountIndex, tx.BuyOffer.AccountIndex)))
+	notBuyer := api.IsZero(api.IsZero(api.Sub(tx.AccountIndex, tx.Offer.AccountIndex)))
 	notBuyer = api.And(flag, notBuyer)
-	err = VerifyEddsaSig(notBuyer, api, hFunc, buyOfferHash, accountsBefore[1].AccountPk, tx.BuyOffer.Sig)
+	err = VerifyEddsaSig(notBuyer, api, hFunc, buyOfferHash, accountsBefore[1].AccountPk, tx.Offer.Sig)
 	if err != nil {
 		return pubData, err
 	}
 	hFunc.Reset()
-	sellOfferHash := ComputeHashFromOfferTx(api, tx.SellOffer, hFunc)
+	sellOfferHash := ComputeHashFromOfferTx(api, tx.Offer, hFunc)
 	hFunc.Reset()
-	notSeller := api.IsZero(api.IsZero(api.Sub(tx.AccountIndex, tx.SellOffer.AccountIndex)))
+	notSeller := api.IsZero(api.IsZero(api.Sub(tx.AccountIndex, tx.Offer.AccountIndex)))
 	notSeller = api.And(flag, notSeller)
-	err = VerifyEddsaSig(notSeller, api, hFunc, sellOfferHash, accountsBefore[2].AccountPk, tx.SellOffer.Sig)
+	err = VerifyEddsaSig(notSeller, api, hFunc, sellOfferHash, accountsBefore[2].AccountPk, tx.Offer.Sig)
 	if err != nil {
 		return pubData, err
 	}
 	// verify account index
 	// submitter
-	IsVariableEqual(api, flag, tx.AccountIndex, accountsBefore[fromAccount].AccountIndex)
+	//IsVariableEqual(api, flag, tx.AccountIndex, accountsBefore[fromAccount].AccountIndex)
 	// buyer
-	IsVariableEqual(api, flag, tx.BuyOffer.AccountIndex, accountsBefore[buyAccount].AccountIndex)
+	IsVariableEqual(api, flag, tx.Offer.AccountIndex, accountsBefore[buyAccount].AccountIndex)
 	// seller
-	IsVariableEqual(api, flag, tx.SellOffer.AccountIndex, accountsBefore[sellAccount].AccountIndex)
+	IsVariableEqual(api, flag, tx.Offer.AccountIndex, accountsBefore[sellAccount].AccountIndex)
 	// creator
 	IsVariableEqual(api, flag, nftBefore.CreatorAccountIndex, accountsBefore[creatorAccount].AccountIndex)
 	// verify buy offer id
-	buyOfferIdBits := api.ToBinary(tx.BuyOffer.OfferId, 24)
+	buyOfferIdBits := api.ToBinary(tx.Offer.OfferId, 24)
 	buyAssetId := api.FromBinary(buyOfferIdBits[7:]...)
-	buyOfferIndex := api.Sub(tx.BuyOffer.OfferId, api.Mul(buyAssetId, OfferSizePerAsset))
+	buyOfferIndex := api.Sub(tx.Offer.OfferId, api.Mul(buyAssetId, OfferSizePerAsset))
 	buyOfferIndexBits := api.ToBinary(accountsBefore[buyAccount].AssetsInfo[1].OfferCanceledOrFinalized, OfferSizePerAsset)
 	for i := 0; i < OfferSizePerAsset; i++ {
 		isZero := api.IsZero(api.Sub(buyOfferIndex, i))
 		IsVariableEqual(api, isZero, buyOfferIndexBits[i], 0)
 	}
 	// verify sell offer id
-	sellOfferIdBits := api.ToBinary(tx.SellOffer.OfferId, 24)
+	sellOfferIdBits := api.ToBinary(tx.Offer.OfferId, 24)
 	sellAssetId := api.FromBinary(sellOfferIdBits[7:]...)
-	sellOfferIndex := api.Sub(tx.SellOffer.OfferId, api.Mul(sellAssetId, OfferSizePerAsset))
+	sellOfferIndex := api.Sub(tx.Offer.OfferId, api.Mul(sellAssetId, OfferSizePerAsset))
 	sellOfferIndexBits := api.ToBinary(accountsBefore[sellAccount].AssetsInfo[1].OfferCanceledOrFinalized, OfferSizePerAsset)
 	for i := 0; i < OfferSizePerAsset; i++ {
 		isZero := api.IsZero(api.Sub(sellOfferIndex, i))
 		IsVariableEqual(api, isZero, sellOfferIndexBits[i], 0)
 	}
 	// buyer should have enough balance
-	tx.BuyOffer.AssetAmount = UnpackAmount(api, tx.BuyOffer.AssetAmount)
-	IsVariableLessOrEqual(api, flag, tx.BuyOffer.AssetAmount, accountsBefore[buyAccount].AssetsInfo[0].Balance)
+	tx.Offer.AssetAmount = UnpackAmount(api, tx.Offer.AssetAmount)
+	IsVariableLessOrEqual(api, flag, tx.Offer.AssetAmount, accountsBefore[buyAccount].AssetsInfo[0].Balance)
 	// submitter should have enough balance
 	tx.GasFeeAssetAmount = UnpackFee(api, tx.GasFeeAssetAmount)
-	IsVariableLessOrEqual(api, flag, tx.GasFeeAssetAmount, accountsBefore[fromAccount].AssetsInfo[0].Balance)
+	//IsVariableLessOrEqual(api, flag, tx.GasFeeAssetAmount, accountsBefore[fromAccount].AssetsInfo[0].Balance)
 	return pubData, nil
 }

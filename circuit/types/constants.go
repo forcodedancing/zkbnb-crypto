@@ -38,8 +38,8 @@ const (
 	ZeroInt    = uint64(0)
 	DefaultInt = int64(-1)
 
-	NbAccountAssetsPerAccount = 2
-	NbAccountsPerTx           = 4
+	NbAccountAssetsPerAccount = 3
+	NbAccountsPerTx           = 3
 	NbGasAssetsPerTx          = 2 // at most two assets transferred to gas account
 
 	NbRoots = 2 // account root, nft root

@@ -41,6 +41,5 @@ var (
 	ErrFromAccountIndexTooLow     = fmt.Errorf("FromAccountIndex should not be less than %d", minAccountIndex)
 	ErrFromAccountIndexTooHigh    = fmt.Errorf("FromAccountIndex should not be larger than %d", maxAccountIndex)
 	ErrToAddressInvalid           = fmt.Errorf("ToAddress is invalid")
-	ErrBuyOfferInvalid            = fmt.Errorf("BuyOffer is invalid")
-	ErrSellOfferInvalid           = fmt.Errorf("SellOffer is invalid")
+	ErrOfferInvalid               = fmt.Errorf("Offer is invalid")
 )

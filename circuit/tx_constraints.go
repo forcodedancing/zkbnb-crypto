@@ -220,6 +220,7 @@ func VerifyTransaction(
 		assetDeltas[i] = [NbAccountAssetsPerAccount]AccountAssetDeltaConstraints{
 			EmptyAccountAssetDeltaConstraints(),
 			EmptyAccountAssetDeltaConstraints(),
+			EmptyAccountAssetDeltaConstraints(),
 		}
 	}
 	nftDelta = NftDeltaConstraints{
@@ -445,7 +446,6 @@ func EmptyTx(stateRoot []byte) (oTx *Tx) {
 		Signature:         types.EmptySignature(),
 		AccountRootBefore: make([]byte, 32),
 		AccountsInfoBefore: [NbAccountsPerTx]*types.Account{
-			types.EmptyAccount(0, make([]byte, 32)),
 			types.EmptyAccount(0, make([]byte, 32)),
 			types.EmptyAccount(0, make([]byte, 32)),
 			types.EmptyAccount(0, make([]byte, 32)),

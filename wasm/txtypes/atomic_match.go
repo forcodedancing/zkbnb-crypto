@@ -31,11 +31,17 @@ import (
 )
 
 type AtomicMatchSegmentFormat struct {
+	Offer string `json:"offer"`
+	// OfferTxInfo Type
+
 	AccountIndex int64  `json:"account_index"`
-	BuyOffer     string `json:"buy_offer"`
-	// OfferTxInfo Type
-	SellOffer string `json:"sell_offer"`
-	// OfferTxInfo Type
+	Type         int64  `json:"type"`
+	OfferId      int64  `json:"offer_id"`
+	NftIndex     int64  `json:"nft_index"`
+	AssetId      int64  `json:"asset_id"`
+	AssetAmount  string `json:"asset_amount"`
+	TreasuryRate int64  `json:"treasury_rate"`
+
 	GasAccountIndex   int64  `json:"gas_account_index"`
 	GasFeeAssetId     int64  `json:"gas_fee_asset_id"`
 	GasFeeAssetAmount string `json:"gas_fee_asset_amount"`
@@ -53,32 +59,36 @@ func ConstructAtomicMatchTxInfo(sk *PrivateKey, segmentStr string) (txInfo *Atom
 	var segmentFormat *AtomicMatchSegmentFormat
 	err = json.Unmarshal([]byte(segmentStr), &segmentFormat)
 	if err != nil {
-		log.Println("[ConstructMintNftTxInfo] err info:", err)
+		log.Println("[ConstructAtomicMatchTxInfo] err info:", err)
 		return nil, err
 	}
 	gasFeeAmount, err := StringToBigInt(segmentFormat.GasFeeAssetAmount)
 	if err != nil {
-		log.Println("[ConstructBuyNftTxInfo] unable to convert string to big int:", err)
+		log.Println("[ConstructAtomicMatchTxInfo] unable to convert string to big int:", err)
 		return nil, err
 	}
 	gasFeeAmount, _ = CleanPackedFee(gasFeeAmount)
-	var (
-		buyOffer, sellOffer *OfferTxInfo
-	)
-	err = json.Unmarshal([]byte(segmentFormat.BuyOffer), &buyOffer)
+	var offer *OfferTxInfo
+	err = json.Unmarshal([]byte(segmentFormat.Offer), &offer)
 	if err != nil {
-		log.Println("[ConstructBuyNftTxInfo] unable to unmarshal offer", err.Error())
+		log.Println("[ConstructAtomicMatchTxInfo] unable to unmarshal offer", err.Error())
 		return nil, err
 	}
-	err = json.Unmarshal([]byte(segmentFormat.SellOffer), &sellOffer)
+	assetAmount, err := StringToBigInt(segmentFormat.AssetAmount)
 	if err != nil {
-		log.Println("[ConstructBuyNftTxInfo] unable to unmarshal offer", err.Error())
+		log.Println("[ConstructAtomicMatchTxInfo] unable to convert string to big int:", err)
 		return nil, err
 	}
+	assetAmount, _ = CleanPackedAmount(assetAmount)
 	txInfo = &AtomicMatchTxInfo{
+		Offer:             offer,
 		AccountIndex:      segmentFormat.AccountIndex,
-		BuyOffer:          buyOffer,
-		SellOffer:         sellOffer,
+		Type:              segmentFormat.Type,
+		OfferId:           segmentFormat.OfferId,
+		NftIndex:          segmentFormat.NftIndex,
+		AssetId:           segmentFormat.AssetId,
+		AssetAmount:       assetAmount,
+		TreasuryRate:      segmentFormat.TreasuryRate,
 		GasAccountIndex:   segmentFormat.GasAccountIndex,
 		GasFeeAssetId:     segmentFormat.GasFeeAssetId,
 		GasFeeAssetAmount: gasFeeAmount,
@@ -91,14 +101,14 @@ func ConstructAtomicMatchTxInfo(sk *PrivateKey, segmentStr string) (txInfo *Atom
 	// compute msg hash
 	msgHash, err := txInfo.Hash(hFunc)
 	if err != nil {
-		log.Println("[ConstructMintNftTxInfo] unable to compute hash: ", err.Error())
+		log.Println("[ConstructAtomicMatchTxInfo] unable to compute hash: ", err.Error())
 		return nil, err
 	}
 	// compute signature
 	hFunc.Reset()
 	sigBytes, err := sk.Sign(msgHash, hFunc)
 	if err != nil {
-		log.Println("[ConstructMintNftTxInfo] unable to sign:", err)
+		log.Println("[ConstructAtomicMatchTxInfo] unable to sign:", err)
 		return nil, err
 	}
 	txInfo.Sig = sigBytes
@@ -106,9 +116,18 @@ func ConstructAtomicMatchTxInfo(sk *PrivateKey, segmentStr string) (txInfo *Atom
 }
 
 type AtomicMatchTxInfo struct {
-	AccountIndex      int64
-	BuyOffer          *OfferTxInfo
-	SellOffer         *OfferTxInfo
+	// original offer
+	Offer *OfferTxInfo
+
+	// counterpart offer
+	AccountIndex int64
+	Type         int64
+	OfferId      int64
+	NftIndex     int64
+	AssetId      int64
+	AssetAmount  *big.Int
+	TreasuryRate int64
+
 	GasAccountIndex   int64
 	GasFeeAssetId     int64
 	GasFeeAssetAmount *big.Int
@@ -128,20 +147,33 @@ func (txInfo *AtomicMatchTxInfo) Validate() error {
 		return ErrAccountIndexTooHigh
 	}
 
-	// BuyOffer
-	if txInfo.BuyOffer == nil {
-		return fmt.Errorf("BuyOffer should not be nil")
+	// Offer
+	if txInfo.Offer == nil {
+		return ErrOfferInvalid
 	}
-	if err := txInfo.BuyOffer.Validate(); err != nil {
-		return errors.Wrap(ErrBuyOfferInvalid, err.Error())
+	if err := txInfo.Offer.Validate(); err != nil {
+		return errors.Wrap(ErrOfferInvalid, err.Error())
 	}
 
-	// SellOffer
-	if txInfo.SellOffer == nil {
-		return fmt.Errorf("SellOffer should not be nil")
+	// Counterpart Offer
+	offer := OfferTxInfo{
+		Type:         txInfo.Type,
+		OfferId:      txInfo.OfferId,
+		AccountIndex: txInfo.AccountIndex,
+		NftIndex:     txInfo.NftIndex,
+		AssetId:      txInfo.AssetId,
+		AssetAmount:  txInfo.AssetAmount,
+		ListedAt:     txInfo.Offer.ListedAt,
+		ExpiredAt:    txInfo.ExpiredAt,
+		TreasuryRate: txInfo.TreasuryRate,
 	}
-	if err := txInfo.SellOffer.Validate(); err != nil {
-		return errors.Wrap(ErrSellOfferInvalid, err.Error())
+
+	if err := offer.Validate(); err != nil {
+		return err
+	}
+
+	if txInfo.Type == txInfo.Offer.Type {
+		return ErrOfferTypeInvalid
 	}
 
 	// GasAccountIndex
@@ -223,12 +255,12 @@ func (txInfo *AtomicMatchTxInfo) GetExpiredAt() int64 {
 func (txInfo *AtomicMatchTxInfo) Hash(hFunc hash.Hash) (msgHash []byte, err error) {
 	hFunc.Reset()
 	var buf bytes.Buffer
-	packedBuyAmount, err := ToPackedAmount(txInfo.BuyOffer.AssetAmount)
+	packedOfferAmount, err := ToPackedAmount(txInfo.Offer.AssetAmount)
 	if err != nil {
 		log.Println("[ComputeTransferMsgHash] unable to packed amount:", err.Error())
 		return nil, err
 	}
-	packedSellAmount, err := ToPackedAmount(txInfo.SellOffer.AssetAmount)
+	packedCounterpartAmount, err := ToPackedAmount(txInfo.AssetAmount)
 	if err != nil {
 		log.Println("[ComputeTransferMsgHash] unable to packed amount:", err.Error())
 		return nil, err
@@ -240,29 +272,19 @@ func (txInfo *AtomicMatchTxInfo) Hash(hFunc hash.Hash) (msgHash []byte, err erro
 	}
 	WriteInt64IntoBuf(&buf, ChainId, txInfo.AccountIndex, txInfo.Nonce, txInfo.ExpiredAt)
 	WriteInt64IntoBuf(&buf, txInfo.GasAccountIndex, txInfo.GasFeeAssetId, packedFee)
-	WriteInt64IntoBuf(&buf, txInfo.BuyOffer.Type, txInfo.BuyOffer.OfferId, txInfo.BuyOffer.AccountIndex, txInfo.BuyOffer.NftIndex)
-	WriteInt64IntoBuf(&buf, txInfo.BuyOffer.AssetId, packedBuyAmount, txInfo.BuyOffer.ListedAt, txInfo.BuyOffer.ExpiredAt)
-	var (
-		buyerSig, sellerSig = new(eddsa.Signature), new(eddsa.Signature)
-	)
-	_, err = buyerSig.SetBytes(txInfo.BuyOffer.Sig)
+	WriteInt64IntoBuf(&buf, txInfo.Offer.Type, txInfo.Offer.OfferId, txInfo.Offer.AccountIndex, txInfo.Offer.NftIndex)
+	WriteInt64IntoBuf(&buf, txInfo.Offer.AssetId, packedOfferAmount, txInfo.Offer.ListedAt, txInfo.Offer.ExpiredAt)
+	var offerSig = new(eddsa.Signature)
+	_, err = offerSig.SetBytes(txInfo.Offer.Sig)
 	if err != nil {
 		log.Println("[ComputeAtomicMatchMsgHash] unable to convert to sig: ", err.Error())
 		return nil, err
 	}
-	buf.Write(buyerSig.R.X.Marshal())
-	buf.Write(buyerSig.R.Y.Marshal())
-	buf.Write(buyerSig.S[:])
-	WriteInt64IntoBuf(&buf, txInfo.SellOffer.Type, txInfo.SellOffer.OfferId, txInfo.SellOffer.AccountIndex, txInfo.SellOffer.NftIndex)
-	WriteInt64IntoBuf(&buf, txInfo.SellOffer.AssetId, packedSellAmount, txInfo.SellOffer.ListedAt, txInfo.SellOffer.ExpiredAt)
-	_, err = sellerSig.SetBytes(txInfo.SellOffer.Sig)
-	if err != nil {
-		log.Println("[ComputeAtomicMatchMsgHash] unable to convert to sig: ", err.Error())
-		return nil, err
-	}
-	buf.Write(sellerSig.R.X.Marshal())
-	buf.Write(sellerSig.R.Y.Marshal())
-	buf.Write(sellerSig.S[:])
+	buf.Write(offerSig.R.X.Marshal())
+	buf.Write(offerSig.R.Y.Marshal())
+	buf.Write(offerSig.S[:])
+	WriteInt64IntoBuf(&buf, txInfo.Type, txInfo.OfferId, txInfo.AccountIndex, txInfo.NftIndex)
+	WriteInt64IntoBuf(&buf, txInfo.AssetId, packedCounterpartAmount, txInfo.ExpiredAt)
 	hFunc.Write(buf.Bytes())
 	msgHash = hFunc.Sum(nil)
 	return msgHash, nil
